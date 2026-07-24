@@ -234,6 +234,19 @@ details > summary:hover {{ color: #ccc; }}
 .settings-field {{ flex: 1 1 280px; }}
 .select-input {{ padding: .45rem .6rem; border-radius: 6px; border: 1px solid rgba(127,127,127,.35);
                  background: rgba(127,127,127,.08); color: inherit; font-size: .85rem; }}
+.settings-actions {{ display: flex; gap: .5rem; margin-bottom: .4rem; }}
+.path-browser {{ margin-top: .6rem; border: 1px solid rgba(127,127,127,.25); border-radius: 8px;
+                 padding: .6rem .7rem; max-width: 480px; }}
+.browser-breadcrumb {{ font-family: ui-monospace, Consolas, monospace; font-size: .78rem; color: #999;
+                       margin-bottom: .5rem; word-break: break-all; }}
+.browser-list {{ max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: .1rem; }}
+.browser-row {{ display: block; width: 100%; text-align: left; background: transparent; color: inherit;
+                border: none; padding: .35rem .5rem; border-radius: 6px; cursor: pointer; font-size: .84rem; }}
+.browser-row:hover {{ background: rgba(127,127,127,.15); }}
+.browser-row.parent {{ color: #999; }}
+.browser-use {{ margin-top: .5rem; background: #3d6bde; }}
+.browser-empty {{ color: #888; font-size: .8rem; padding: .3rem .5rem; }}
+.browser-error {{ color: #ff8a8a; font-size: .8rem; padding: .3rem .5rem; }}
 </style></head>
 <body>
 <h1>tag-doctor</h1>
@@ -246,8 +259,16 @@ details > summary:hover {{ color: #ccc; }}
   <div class="settings-body">
     <form method="post" action="/settings/music-dir" class="settings-field">
       <label class="field-label">Pasta a escanear (caminho dentro do container)</label>
-      <input type="text" name="music_dir" value="{_esc(music_dir)}" class="text-input" style="max-width:100%">
-      <button type="submit" class="secondary-btn">Salvar caminho</button>
+      <input type="text" id="music-dir-input" name="music_dir" value="{_esc(music_dir)}"
+             class="text-input" style="max-width:100%">
+      <div class="settings-actions">
+        <button type="submit" class="secondary-btn">Salvar caminho</button>
+        <button type="button" id="browse-toggle" class="secondary-btn">Procurar pastas</button>
+      </div>
+      <div id="path-browser" class="path-browser" style="display:none">
+        <div id="browser-breadcrumb" class="browser-breadcrumb"></div>
+        <div id="browser-list" class="browser-list"></div>
+      </div>
     </form>
     <div class="settings-field">
       <label class="field-label">Tema</label>
@@ -292,6 +313,66 @@ document.getElementById('scan-form').addEventListener('submit', function() {{
       document.documentElement.setAttribute('data-theme', select.value);
       localStorage.setItem('theme', select.value);
     }}
+  }});
+}})();
+
+(function() {{
+  var toggle = document.getElementById('browse-toggle');
+  var panel = document.getElementById('path-browser');
+  var breadcrumb = document.getElementById('browser-breadcrumb');
+  var list = document.getElementById('browser-list');
+  var input = document.getElementById('music-dir-input');
+  var open = false;
+
+  function row(label, cls, onClick) {{
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'browser-row' + (cls ? ' ' + cls : '');
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }}
+
+  function load(path) {{
+    list.innerHTML = '<div class="browser-empty">carregando...</div>';
+    fetch('/api/browse?path=' + encodeURIComponent(path)).then(function(r) {{ return r.json(); }}).then(function(data) {{
+      list.innerHTML = '';
+      if (data.error) {{
+        breadcrumb.textContent = path;
+        var err = document.createElement('div');
+        err.className = 'browser-error';
+        err.textContent = data.error;
+        list.appendChild(err);
+        return;
+      }}
+      breadcrumb.textContent = data.path;
+      if (data.parent !== null && data.parent !== undefined) {{
+        list.appendChild(row('.. (subir)', 'parent', function() {{ load(data.parent); }}));
+      }}
+      if (!data.dirs.length) {{
+        var empty = document.createElement('div');
+        empty.className = 'browser-empty';
+        empty.textContent = 'nenhuma subpasta aqui.';
+        list.appendChild(empty);
+      }}
+      data.dirs.forEach(function(name) {{
+        var childPath = data.path.replace(/[/]+$/, '') + '/' + name;
+        list.appendChild(row(name, '', function() {{ load(childPath); }}));
+      }});
+      list.appendChild(row('Usar esta pasta →', 'browser-use', function() {{
+        input.value = data.path;
+        panel.style.display = 'none';
+        open = false;
+      }}));
+    }}).catch(function() {{
+      list.innerHTML = '<div class="browser-error">falha ao listar pastas.</div>';
+    }});
+  }}
+
+  toggle.addEventListener('click', function() {{
+    open = !open;
+    panel.style.display = open ? 'block' : 'none';
+    if (open) load(input.value);
   }});
 }})();
 {"""

@@ -259,3 +259,24 @@ def api_state():
             "last_scan": _state["last_scan"],
             "pending": len(_state["groups"]),
         }
+
+
+@app.get("/api/browse")
+def browse(path: str = ""):
+    target = path.strip() or DEFAULT_MUSIC_DIR
+    target = os.path.normpath(target)
+
+    if not os.path.isdir(target):
+        return {"error": f'"{target}" não existe ou não é uma pasta.'}
+
+    try:
+        entries = os.scandir(target)
+        dirs = sorted(
+            (e.name for e in entries if e.is_dir(follow_symlinks=True) and not e.name.startswith(".")),
+            key=str.lower,
+        )
+    except PermissionError:
+        return {"error": f'sem permissão pra ler "{target}".'}
+
+    parent = os.path.dirname(target) if target != "/" else None
+    return {"path": target, "parent": parent, "dirs": dirs}
