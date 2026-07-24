@@ -1,0 +1,50 @@
+name: tag-doctor
+services:
+  tag-doctor:
+    image: ghcr.io/guimartins/tag-doctor:latest
+    container_name: tag-doctor
+    restart: unless-stopped
+    ports:
+      - target: 8991
+        published: "8991"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /DATA/AppData/$AppID/data
+        target: /data
+      - type: bind
+        source: /media/1tb/ Music
+        target: /music
+    environment:
+      DATA_DIR: /data
+      MUSIC_DIR: /music
+      # Opcional, habilita o botão de rescan no Navidrome:
+      # ND_URL: http://navidrome:4533
+      # ND_USER: admin
+      # ND_PASS: changeme
+x-casaos:
+  architectures:
+    - amd64
+  id: com.guimartins.tag-doctor
+  main: tag-doctor
+  description:
+    en_US: Finds and fixes ALBUMARTIST/ALBUM tag inconsistencies that fragment albums in Navidrome/Symphonium
+    pt_BR: Encontra e corrige inconsistências de tag ALBUMARTIST/ALBUM que quebram álbuns no Navidrome/Symphonium
+  tagline:
+    en_US: Stop albums splitting into pieces on Navidrome
+    pt_BR: Pare de ver álbum quebrado em pedaços no Navidrome
+  developer: GuiMartins
+  author: GuiMartins
+  icon: https://raw.githubusercontent.com/GuiMartins/tag-doctor/main/Apps/tag-doctor/icon.svg
+  thumbnail: ""
+  title:
+    en_US: tag-doctor
+  category: Utilities
+  port_map: "8991"
+  scheme: http
+  index: /
+  volumes:
+    - container: /music
+      description:
+        en_US: Path to your music library (scanned recursively)
+        pt_BR: Caminho da sua biblioteca de música (escaneada com subpastas)

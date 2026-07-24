@@ -1,0 +1,16 @@
+services:
+  tag-doctor:
+    build: .
+    container_name: tag-doctor
+    ports:
+      - "8991:8991"
+    volumes:
+      - ./data:/data
+      - "/media/1tb/ Music:/music"
+    environment:
+      MUSIC_DIR: /music
+      DATA_DIR: /data
+      # Optional - lets the "Forçar rescan no Navidrome" button work:
+      # ND_URL: http://navidrome:4533
+      # ND_USER: admin
+      # ND_PASS: changeme
