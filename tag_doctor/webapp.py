@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from . import fixer, navidrome_client, report
 from .scanner import Group, scan
 
-MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
+DEFAULT_MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
 
@@ -17,6 +17,7 @@ app = FastAPI()
 
 _lock = threading.Lock()
 _state = {
+    "music_dir": DEFAULT_MUSIC_DIR,
     "groups": [],  # list[Group]
     "stats": {},
     "last_scan": None,
@@ -33,6 +34,7 @@ def _load_state():
         with open(STATE_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         with _lock:
+            _state["music_dir"] = data.get("music_dir", DEFAULT_MUSIC_DIR)
             _state["groups"] = [Group.from_dict(g) for g in data.get("groups", [])]
             _state["stats"] = data.get("stats", {})
             _state["last_scan"] = data.get("last_scan")
@@ -45,6 +47,7 @@ def _save_state():
     os.makedirs(DATA_DIR, exist_ok=True)
     with _lock:
         data = {
+            "music_dir": _state["music_dir"],
             "groups": [g.to_dict() for g in _state["groups"]],
             "stats": _state["stats"],
             "last_scan": _state["last_scan"],
@@ -59,8 +62,9 @@ def _save_state():
 def _do_scan():
     with _lock:
         _state["scanning"] = True
+        music_dir = _state["music_dir"]
     try:
-        groups, stats = scan(MUSIC_DIR)
+        groups, stats = scan(music_dir)
         with _lock:
             _state["groups"] = groups
             _state["stats"] = stats
@@ -94,6 +98,7 @@ def _remove_group(gid):
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     with _lock:
+        music_dir = _state["music_dir"]
         groups = list(_state["groups"])
         stats = dict(_state["stats"])
         last_scan = _state["last_scan"]
@@ -102,7 +107,7 @@ def dashboard():
         flash = _state["flash"]
         _state["flash"] = None
     return report.render_html(
-        music_dir=MUSIC_DIR,
+        music_dir=music_dir,
         groups=groups,
         stats=stats,
         last_scan=last_scan,
@@ -121,6 +126,32 @@ def trigger_scan():
             _state["scanning"] = True
     if not already:
         threading.Thread(target=_do_scan, daemon=True).start()
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/settings/music-dir")
+async def set_music_dir(request: Request):
+    form = await request.form()
+    new_path = form.get("music_dir", "").strip()
+
+    if not new_path:
+        with _lock:
+            _state["flash"] = ("bad", "o caminho não pode ficar vazio.")
+        return RedirectResponse(url="/", status_code=303)
+    if not os.path.isdir(new_path):
+        with _lock:
+            _state["flash"] = (
+                "bad",
+                f"\"{new_path}\" não existe (ou não é uma pasta) dentro do container. "
+                "Só dá pra apontar pra dentro do que foi montado no volume (ex: subpastas de "
+                f"{DEFAULT_MUSIC_DIR}).",
+            )
+        return RedirectResponse(url="/", status_code=303)
+
+    with _lock:
+        _state["music_dir"] = new_path
+        _state["flash"] = ("ok", f"caminho atualizado pra \"{new_path}\". Rode um novo scan pra aplicar.")
+    _save_state()
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -159,7 +190,9 @@ async def apply_group(gid: str, request: Request):
             fields.update(album_fields)
             updates.append((t.path, fields))
 
-    ok, errors = fixer.set_tags(MUSIC_DIR, updates)
+    with _lock:
+        music_dir = _state["music_dir"]
+    ok, errors = fixer.set_tags(music_dir, updates)
     _remove_group(gid)
     if errors:
         with _lock:
@@ -175,6 +208,7 @@ async def apply_group(gid: str, request: Request):
 def apply_all():
     with _lock:
         groups = list(_state["groups"])
+        music_dir = _state["music_dir"]
 
     total_ok = 0
     total_errors = 0
@@ -192,7 +226,7 @@ def apply_all():
                     updates.append((t.path, {"albumartist": t.suggested_albumartist}))
         if not updates:
             continue
-        ok, errors = fixer.set_tags(MUSIC_DIR, updates)
+        ok, errors = fixer.set_tags(music_dir, updates)
         total_ok += ok
         total_errors += len(errors)
         applied_gids.append(group.gid)
