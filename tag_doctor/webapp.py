@@ -4,7 +4,7 @@ import threading
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from . import fixer, navidrome_client, report
 from .scanner import Group, scan
@@ -91,7 +91,7 @@ def _remove_group(gid):
         _state["fixed_count"] += 1
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def dashboard():
     with _lock:
         groups = list(_state["groups"])
