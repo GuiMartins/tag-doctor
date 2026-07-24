@@ -75,13 +75,16 @@ def _analyze(dir_path, album, raw_tracks):
     aa_values = [t[1] for t in raw_tracks]
     non_empty_aa = [a for a in aa_values if a]
 
-    missing = any(a == "" for a in aa_values)
-    inconsistent = len(set(non_empty_aa)) > 1
-    artist_varies = len(set(t[2] for t in raw_tracks)) > 1
-    moji = has_mojibake(album, *[t[1] for t in raw_tracks], *[t[2] for t in raw_tracks])
-
     collision = len(canonical_counts) > 1
     mode = "per_track" if collision else "uniform"
+
+    missing = any(a == "" for a in aa_values)
+    # In a per_track (collision) group, different ALBUMARTIST values across tracks are the
+    # correct end state (each track keeps its own real artist) - only flag inconsistency for
+    # uniform groups, where every track is supposed to share one ALBUMARTIST.
+    inconsistent = mode == "uniform" and len(set(non_empty_aa)) > 1
+    artist_varies = len(set(t[2] for t in raw_tracks)) > 1
+    moji = has_mojibake(album, *[t[1] for t in raw_tracks], *[t[2] for t in raw_tracks])
 
     if mode == "uniform":
         if non_empty_aa:
