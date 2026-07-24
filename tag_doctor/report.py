@@ -1,6 +1,17 @@
 import html
 from datetime import datetime
 
+FAVICON = (
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAx"
+    "MjggMTI4Ij4KICA8cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjN2MzYWVkIi8+CiAgPHBhdGgg"
+    "ZD0iTTI0IDI2IGgzMiBsMzAgMjYgLTMwIDI2IGgtMzIgeiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lk"
+    "dGg9IjgiCiAgICAgICAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CiAgPGNpcmNsZSBj"
+    "eD0iNzAiIGN5PSI1MiIgcj0iNSIgZmlsbD0iI2ZmZmZmZiIvPgogIDxjaXJjbGUgY3g9Ijk0IiBjeT0iOTQiIHI9IjIyIiBmaWxs"
+    "PSIjZmZmZmZmIi8+CiAgPHBhdGggZD0iTTg0IDk1IGw3IDcgMTQgLTE1IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YzNhZWQiIHN0"
+    "cm9rZS13aWR0aD0iNyIKICAgICAgICBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9z"
+    "dmc+Cg=="
+)
+
 
 def _esc(value):
     return html.escape(str(value if value is not None else ""))
@@ -151,6 +162,7 @@ def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flas
     return f"""<!doctype html>
 <html><head><meta charset="utf-8">
 <title>tag-doctor</title>
+<link rel="icon" type="image/svg+xml" href="{FAVICON}">
 <script>
 (function() {{
   var saved = localStorage.getItem('theme');
@@ -167,9 +179,6 @@ body {{ font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 2r
 }}
 :root[data-theme="light"] body {{ background: #f7f7f8; color: #1a1a1a; }}
 :root[data-theme="dark"] body {{ background: #0f1115; color: #e6e6e6; }}
-#theme-btn {{ background: transparent; border: 1px solid rgba(127,127,127,.3); color: inherit;
-              padding: .4rem .7rem; }}
-#theme-btn:hover {{ background: rgba(127,127,127,.15); }}
 h1 {{ font-size: 1.4rem; margin: 0 0 .2rem; }}
 .meta {{ color: #888; font-size: .85rem; margin-bottom: 1.5rem; display: flex; align-items: center;
          gap: .8rem; flex-wrap: wrap; }}
@@ -219,6 +228,12 @@ form {{ display: inline; }}
 details {{ margin-top: .8rem; }}
 details > summary {{ cursor: pointer; color: #999; font-size: .8rem; padding: .3rem 0; user-select: none; }}
 details > summary:hover {{ color: #ccc; }}
+.settings-panel {{ margin-bottom: 1.2rem; }}
+.settings-panel > summary {{ font-size: .85rem; }}
+.settings-body {{ display: flex; gap: 1.5rem; flex-wrap: wrap; padding: 1rem 0 .2rem; }}
+.settings-field {{ flex: 1 1 280px; }}
+.select-input {{ padding: .45rem .6rem; border-radius: 6px; border: 1px solid rgba(127,127,127,.35);
+                 background: rgba(127,127,127,.08); color: inherit; font-size: .85rem; }}
 </style></head>
 <body>
 <h1>tag-doctor</h1>
@@ -226,6 +241,24 @@ details > summary:hover {{ color: #ccc; }}
   <span>pasta: <span class="mono">{_esc(music_dir)}</span></span>
   <span>· último scan: {_esc(format_ts(last_scan)) or 'nunca'}</span>
 </div>
+<details class="card settings-panel">
+  <summary>Configurações</summary>
+  <div class="settings-body">
+    <form method="post" action="/settings/music-dir" class="settings-field">
+      <label class="field-label">Pasta a escanear (caminho dentro do container)</label>
+      <input type="text" name="music_dir" value="{_esc(music_dir)}" class="text-input" style="max-width:100%">
+      <button type="submit" class="secondary-btn">Salvar caminho</button>
+    </form>
+    <div class="settings-field">
+      <label class="field-label">Tema</label>
+      <select id="theme-select" class="select-input">
+        <option value="auto">Automático (segue o sistema)</option>
+        <option value="light">Claro</option>
+        <option value="dark">Escuro</option>
+      </select>
+    </div>
+  </div>
+</details>
 <div class="toolbar">
   <form method="post" action="/scan" id="scan-form">
     <button type="submit" id="scan-btn" {"disabled" if scanning else ""}>
@@ -234,7 +267,6 @@ details > summary:hover {{ color: #ccc; }}
   </form>
   {apply_all_html}
   {nd_html}
-  <button type="button" id="theme-btn" class="secondary-btn">Tema</button>
 </div>
 {flash_html}
 {banner}
@@ -249,21 +281,18 @@ document.getElementById('scan-form').addEventListener('submit', function() {{
 }});
 
 (function() {{
-  var prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-  var themeBtn = document.getElementById('theme-btn');
-  function currentTheme() {{
-    return document.documentElement.getAttribute('data-theme') || (prefersLight ? 'light' : 'dark');
-  }}
-  function updateLabel() {{
-    themeBtn.textContent = currentTheme() === 'light' ? 'Modo escuro' : 'Modo claro';
-  }}
-  themeBtn.addEventListener('click', function() {{
-    var next = currentTheme() === 'light' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    updateLabel();
+  var select = document.getElementById('theme-select');
+  var saved = localStorage.getItem('theme');
+  select.value = saved || 'auto';
+  select.addEventListener('change', function() {{
+    if (select.value === 'auto') {{
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.removeItem('theme');
+    }} else {{
+      document.documentElement.setAttribute('data-theme', select.value);
+      localStorage.setItem('theme', select.value);
+    }}
   }});
-  updateLabel();
 }})();
 {"""
 (function poll() {
