@@ -167,9 +167,12 @@ async def apply_group(gid: str, request: Request):
     updates = []
 
     new_album = form.get("album", "").strip()
-    album_fields = {}
+    new_genre = form.get("genre", "").strip()
+    extra_fields = {}
     if group.mojibake and new_album and new_album != group.album:
-        album_fields["album"] = new_album
+        extra_fields["album"] = new_album
+    if group.missing_genre and new_genre:
+        extra_fields["genre"] = new_genre
 
     if group.mode == "uniform":
         value = form.get("albumartist", "").strip()
@@ -179,16 +182,16 @@ async def apply_group(gid: str, request: Request):
             return RedirectResponse(url="/", status_code=303)
         for t in group.tracks:
             fields = {"albumartist": value}
-            fields.update(album_fields)
+            fields.update(extra_fields)
             updates.append((t.path, fields))
     else:
         for t in group.tracks:
             value = form.get(f"albumartist__{t.path}", "").strip()
-            if not value:
-                continue
-            fields = {"albumartist": value}
-            fields.update(album_fields)
-            updates.append((t.path, fields))
+            fields = dict(extra_fields)
+            if value:
+                fields["albumartist"] = value
+            if fields:
+                updates.append((t.path, fields))
 
     with _lock:
         music_dir = _state["music_dir"]

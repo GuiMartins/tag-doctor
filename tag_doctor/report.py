@@ -29,6 +29,10 @@ def format_ts(iso_str):
 
 def _badges(group):
     badges = []
+    if group.missing_album:
+        badges.append(("bad", "sem tag ALBUM"))
+    if group.missing_artist:
+        badges.append(("bad", "sem tag ARTIST"))
     if group.missing_albumartist:
         badges.append(("warn", "ALBUMARTIST ausente"))
     if group.inconsistent_albumartist:
@@ -37,6 +41,14 @@ def _badges(group):
         badges.append(("bad", "múltiplos artistas no mesmo título"))
     if group.mojibake:
         badges.append(("bad", "encoding suspeito"))
+    if group.missing_genre:
+        badges.append(("warn", "gênero ausente"))
+    if group.missing_tracknumber:
+        badges.append(("warn", "faixa sem número"))
+    if group.duplicate_tracknumber:
+        badges.append(("bad", "número de faixa duplicado (talvez multi-disco sem DISCNUMBER)"))
+    if group.missing_cover:
+        badges.append(("muted", "sem capa"))
     return "".join(f"<span class='badge {cls}'>{_esc(label)}</span>" for cls, label in badges)
 
 
@@ -46,25 +58,55 @@ def _track_rows(group):
         rows.append(
             f"<tr><td class='mono'>{_esc(t.path)}</td>"
             f"<td>{_esc(t.artist) or '<i>—</i>'}</td>"
-            f"<td>{_esc(t.albumartist) or '<i>(vazio)</i>'}</td></tr>"
+            f"<td>{_esc(t.albumartist) or '<i>(vazio)</i>'}</td>"
+            f"<td>{_esc(t.tracknumber) or '<i>—</i>'}</td></tr>"
         )
     return "".join(rows)
 
 
 def _group_card(group):
     track_count = len(group.tracks)
-    album_fix_html = ""
+    fixable = (
+        group.missing_albumartist or group.inconsistent_albumartist
+        or group.mojibake or group.missing_genre
+    )
+
+    extra_fix_html = ""
     if group.mojibake:
-        album_fix_html = f"""
+        extra_fix_html += f"""
         <label class="field-label">Nome do álbum (parece ter acentuação corrompida - corrija se precisar)</label>
         <input type="text" name="album" value="{_esc(group.album)}" class="text-input">
         """
+    if group.missing_genre:
+        extra_fix_html += f"""
+        <label class="field-label">Gênero a aplicar em todas as {track_count} faixas (deixe em branco pra pular)</label>
+        <input type="text" name="genre" value="{_esc(group.suggested_genre)}" class="text-input">
+        """
 
-    if group.mode == "uniform":
-        body = f"""
-        <label class="field-label">ALBUMARTIST a aplicar em todas as {track_count} faixas</label>
-        <input type="text" name="albumartist" value="{_esc(group.suggested_albumartist)}"
-               class="text-input" required>
+    if not fixable:
+        notes = []
+        if group.missing_cover:
+            notes.append("capa (adicione um cover.jpg/folder.jpg na pasta ou embuta a imagem via Picard/Mp3tag)")
+        if group.missing_album:
+            notes.append("tag ALBUM (essas faixas podem nem ser o mesmo álbum de verdade - confira manualmente)")
+        if group.missing_artist:
+            notes.append("tag ARTIST")
+        if group.missing_tracknumber:
+            notes.append("número de faixa (TRACKNUMBER)")
+        if group.duplicate_tracknumber:
+            notes.append("DISCNUMBER (números de faixa repetidos sugerem múltiplos discos sem essa tag)")
+        apply_html = (
+            f"<p class='muted small'>Sem correção automática por aqui ainda - falta: {', '.join(notes)}.</p>"
+        )
+    elif group.mode == "uniform":
+        apply_html = f"""
+        <form method="post" action="/apply/{_esc(group.gid)}" class="apply-form">
+          {extra_fix_html}
+          <label class="field-label">ALBUMARTIST a aplicar em todas as {track_count} faixas</label>
+          <input type="text" name="albumartist" value="{_esc(group.suggested_albumartist)}"
+                 class="text-input" required>
+          <button type="submit">Aplicar</button>
+        </form>
         """
     else:
         rows = "".join(
@@ -76,10 +118,14 @@ def _group_card(group):
                 </div>"""
             for t in group.tracks
         )
-        body = f"""
-        <p class="muted small">Faixas de artistas diferentes com o mesmo título de álbum - revise o
-        ALBUMARTIST de cada uma (não precisa ser igual pra todas).</p>
-        {rows}
+        apply_html = f"""
+        <form method="post" action="/apply/{_esc(group.gid)}" class="apply-form">
+          {extra_fix_html}
+          <p class="muted small">Faixas de artistas diferentes com o mesmo título de álbum - revise o
+          ALBUMARTIST de cada uma (não precisa ser igual pra todas).</p>
+          {rows}
+          <button type="submit">Aplicar</button>
+        </form>
         """
 
     return f"""
@@ -89,14 +135,10 @@ def _group_card(group):
         <span class="muted small">{_esc(group.dir_path)} · {track_count} faixas</span>
         {_badges(group)}
       </div>
-      <form method="post" action="/apply/{_esc(group.gid)}" class="apply-form">
-        {album_fix_html}
-        {body}
-        <button type="submit">Aplicar</button>
-      </form>
+      {apply_html}
       <details>
         <summary>ver tags atuais das faixas</summary>
-        <table><thead><tr><th>Arquivo</th><th>ARTIST</th><th>ALBUMARTIST</th></tr></thead>
+        <table><thead><tr><th>Arquivo</th><th>ARTIST</th><th>ALBUMARTIST</th><th>Faixa</th></tr></thead>
         <tbody>{_track_rows(group)}</tbody></table>
       </details>
     </div>
@@ -206,6 +248,7 @@ tr:last-child td {{ border-bottom: none; }}
           font-size: .68rem; font-weight: 600; margin-left: .3rem; }}
 .badge.warn {{ background: #3a331e; color: #f0c674; }}
 .badge.bad {{ background: #3a1e1e; color: #ff8a8a; }}
+.badge.muted {{ background: rgba(127,127,127,.18); color: #999; }}
 .muted {{ color: #888; }}
 .small {{ font-size: .8rem; }}
 button, .secondary-btn {{ background: #3d6bde; color: white; border: none; padding: .5rem 1.1rem;
