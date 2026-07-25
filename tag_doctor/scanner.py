@@ -73,6 +73,14 @@ class Group:
         return cls(**d)
 
 
+def compute_has_issue(g):
+    return (
+        g.missing_albumartist or g.inconsistent_albumartist or g.mojibake or g.missing_genre
+        or g.missing_album or g.missing_artist or g.missing_tracknumber or g.duplicate_tracknumber
+        or g.missing_cover
+    )
+
+
 def _read_tags(path):
     try:
         f = mutagen.File(path, easy=True)
@@ -254,7 +262,7 @@ def scan(music_dir):
             _has_embedded_art(os.path.join(music_dir, t.path)) for t in g.tracks
         )
         g.missing_cover = not has_cover
-        g.has_issue = g.has_issue or g.missing_cover
+        g.has_issue = compute_has_issue(g)
 
         if g.has_issue:
             groups.append(g)
