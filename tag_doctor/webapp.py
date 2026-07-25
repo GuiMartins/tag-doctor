@@ -4,10 +4,10 @@ import threading
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import fixer, navidrome_client, report
-from .scanner import Group, scan
+from . import fixer, lookup as lookup_module, navidrome_client, report
+from .scanner import Group, compute_has_issue, scan
 
 DEFAULT_MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
@@ -25,6 +25,10 @@ _state = {
     "fixed_count": 0,
     "flash": None,
 }
+
+# In-memory only (not persisted) - fetched metadata candidates awaiting user confirmation,
+# keyed by group gid. Holds raw image bytes, so keeping it out of state.json is deliberate.
+_lookup_cache = {}
 
 
 def _load_state():
@@ -106,6 +110,13 @@ def dashboard():
         fixed_count = _state["fixed_count"]
         flash = _state["flash"]
         _state["flash"] = None
+    lookup_results = {
+        gid: {
+            "source": data["source"], "title": data["title"], "artist": data["artist"],
+            "genre": data["genre"], "has_image": bool(data.get("image_bytes")),
+        }
+        for gid, data in _lookup_cache.items()
+    }
     return report.render_html(
         music_dir=music_dir,
         groups=groups,
@@ -115,6 +126,7 @@ def dashboard():
         fixed_count=fixed_count,
         flash=flash,
         navidrome_configured=navidrome_client.configured(),
+        lookup_results=lookup_results,
     )
 
 
@@ -242,6 +254,95 @@ def apply_all():
             f"{total_ok} faixa(s) corrigida(s) em {len(applied_gids)} álbum(ns)"
             + (f", {total_errors} erro(s)." if total_errors else "."),
         )
+    _save_state()
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/lookup/{gid}")
+def do_lookup(gid: str):
+    group = _find_group(gid)
+    if group is None:
+        with _lock:
+            _state["flash"] = ("bad", "esse álbum já não está mais pendente (rode um novo scan).")
+        return RedirectResponse(url="/", status_code=303)
+
+    artist = group.suggested_albumartist or (group.tracks[0].artist if group.tracks else "")
+    result = lookup_module.lookup(artist, group.album)
+
+    if result is None:
+        _lookup_cache.pop(gid, None)
+        with _lock:
+            _state["flash"] = ("bad", f'nenhum resultado encontrado pra "{group.album}".')
+    else:
+        _lookup_cache[gid] = result
+        found = []
+        if result["genre"]:
+            found.append(f'gênero "{result["genre"]}"')
+        if result["image_bytes"]:
+            found.append("capa")
+        with _lock:
+            _state["flash"] = (
+                "ok",
+                f'achei em {result["source"]} ({result["artist"]} - {result["title"]}): '
+                + (", ".join(found) if found else "nada de útil, só o registro"),
+            )
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/lookup-image/{gid}")
+def lookup_image(gid: str):
+    data = _lookup_cache.get(gid)
+    if not data or not data.get("image_bytes"):
+        return Response(status_code=404)
+    return Response(content=data["image_bytes"], media_type=data.get("image_mime") or "image/jpeg")
+
+
+@app.post("/apply-lookup/{gid}")
+async def apply_lookup(gid: str, request: Request):
+    group = _find_group(gid)
+    data = _lookup_cache.get(gid)
+    if group is None or data is None:
+        with _lock:
+            _state["flash"] = ("bad", "essa busca expirou - clique em Buscar online de novo.")
+        return RedirectResponse(url="/", status_code=303)
+
+    form = await request.form()
+    apply_genre = form.get("apply_genre") == "on" and bool(data.get("genre"))
+    apply_cover = form.get("apply_cover") == "on" and bool(data.get("image_bytes"))
+
+    with _lock:
+        music_dir = _state["music_dir"]
+
+    ok_total = 0
+    errors = []
+    if apply_genre:
+        updates = [(t.path, {"genre": data["genre"]}) for t in group.tracks]
+        ok, errs = fixer.set_tags(music_dir, updates)
+        ok_total += ok
+        errors += errs
+    if apply_cover:
+        ok, errs = fixer.embed_cover(music_dir, [t.path for t in group.tracks], data["image_bytes"], data["image_mime"])
+        ok_total += ok
+        errors += errs
+
+    with _lock:
+        for g in _state["groups"]:
+            if g.gid == gid:
+                if apply_genre:
+                    g.missing_genre = False
+                if apply_cover:
+                    g.missing_cover = False
+                g.has_issue = compute_has_issue(g)
+                if not g.has_issue:
+                    _state["groups"] = [x for x in _state["groups"] if x.gid != gid]
+                    _state["fixed_count"] += 1
+                break
+        _state["flash"] = (
+            "ok" if not errors else "bad",
+            f"{ok_total} arquivo(s) atualizados"
+            + (f", {len(errors)} erro(s): {errors[0][1]}" if errors else "."),
+        )
+    _lookup_cache.pop(gid, None)
     _save_state()
     return RedirectResponse(url="/", status_code=303)
 

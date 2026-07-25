@@ -64,7 +64,61 @@ def _track_rows(group):
     return "".join(rows)
 
 
-def _group_card(group):
+def _lookup_html(group, lookup_result):
+    needs_lookup = group.missing_genre or group.missing_cover
+    if not needs_lookup:
+        return ""
+
+    search_form = f"""
+    <form method="post" action="/lookup/{_esc(group.gid)}" class="lookup-search">
+      <button type="submit" class="secondary-btn">Buscar online (MusicBrainz/iTunes)</button>
+    </form>
+    """
+
+    if not lookup_result:
+        return search_form
+
+    checkboxes = []
+    if group.missing_genre and lookup_result["genre"]:
+        checkboxes.append(f"""
+        <label class="lookup-check">
+          <input type="checkbox" name="apply_genre" checked> Gênero: <b>{_esc(lookup_result["genre"])}</b>
+        </label>
+        """)
+    if group.missing_cover and lookup_result["has_image"]:
+        checkboxes.append("""
+        <label class="lookup-check">
+          <input type="checkbox" name="apply_cover" checked> Capa (ao lado)
+        </label>
+        """)
+
+    if not checkboxes:
+        return f"""
+        {search_form}
+        <p class="muted small">Achado em {_esc(lookup_result["source"])}
+        ({_esc(lookup_result["artist"])} - {_esc(lookup_result["title"])}), mas nada que faltava aqui.</p>
+        """
+
+    image_html = (
+        f'<img class="lookup-thumb" src="/lookup-image/{_esc(group.gid)}" alt="capa encontrada">'
+        if lookup_result["has_image"] else ""
+    )
+
+    return f"""
+    {search_form}
+    <div class="lookup-result">
+      {image_html}
+      <form method="post" action="/apply-lookup/{_esc(group.gid)}" class="lookup-apply">
+        <p class="muted small">Achado em {_esc(lookup_result["source"])}:
+        {_esc(lookup_result["artist"])} - {_esc(lookup_result["title"])}</p>
+        {''.join(checkboxes)}
+        <button type="submit">Aplicar metadado buscado</button>
+      </form>
+    </div>
+    """
+
+
+def _group_card(group, lookup_result=None):
     track_count = len(group.tracks)
     fixable = (
         group.missing_albumartist or group.inconsistent_albumartist
@@ -136,6 +190,7 @@ def _group_card(group):
         {_badges(group)}
       </div>
       {apply_html}
+      {_lookup_html(group, lookup_result)}
       <details>
         <summary>ver tags atuais das faixas</summary>
         <table><thead><tr><th>Arquivo</th><th>ARTIST</th><th>ALBUMARTIST</th><th>Faixa</th></tr></thead>
@@ -145,7 +200,9 @@ def _group_card(group):
     """
 
 
-def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flash, navidrome_configured):
+def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flash,
+                 navidrome_configured, lookup_results=None):
+    lookup_results = lookup_results or {}
     total_groups = stats.get("total_groups", 0)
     total_tracks = stats.get("total_tracks", 0)
     problem_groups = len(groups)
@@ -182,7 +239,7 @@ def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flas
         if unreadable:
             cards += f"<p class='muted small'>{unreadable} arquivo(s) sem tags legíveis, ignorado(s).</p>"
 
-    groups_html = "".join(_group_card(g) for g in groups)
+    groups_html = "".join(_group_card(g, lookup_results.get(g.gid)) for g in groups)
 
     apply_all_html = ""
     if groups:
@@ -268,6 +325,12 @@ form {{ display: inline; }}
 .pt-path {{ flex: 1 1 260px; color: #999; }}
 .pt-artist {{ flex: 0 0 auto; color: #999; font-size: .8rem; }}
 .pt-input {{ flex: 1 1 200px; margin-bottom: 0; }}
+.lookup-search {{ margin-top: .6rem; }}
+.lookup-result {{ display: flex; gap: 1rem; margin-top: .7rem; align-items: flex-start; flex-wrap: wrap; }}
+.lookup-thumb {{ width: 96px; height: 96px; object-fit: cover; border-radius: 8px;
+                 border: 1px solid rgba(127,127,127,.3); flex: none; }}
+.lookup-apply {{ flex: 1 1 220px; }}
+.lookup-check {{ display: block; font-size: .84rem; margin: .3rem 0; }}
 details {{ margin-top: .8rem; }}
 details > summary {{ cursor: pointer; color: #999; font-size: .8rem; padding: .3rem 0; user-select: none; }}
 details > summary:hover {{ color: #ccc; }}
