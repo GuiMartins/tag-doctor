@@ -49,6 +49,8 @@ def _badges(group):
         badges.append(("bad", "número de faixa duplicado (talvez multi-disco sem DISCNUMBER)"))
     if group.missing_cover:
         badges.append(("muted", "sem capa"))
+    if group.inconsistent_release_id:
+        badges.append(("bad", "release do MusicBrainz diferente entre faixas (fragmenta o álbum)"))
     return "".join(f"<span class='badge {cls}'>{_esc(label)}</span>" for cls, label in badges)
 
 
@@ -122,7 +124,7 @@ def _group_card(group, lookup_result=None):
     track_count = len(group.tracks)
     fixable = (
         group.missing_albumartist or group.inconsistent_albumartist
-        or group.mojibake or group.missing_genre
+        or group.mojibake or group.missing_genre or group.inconsistent_release_id
     )
 
     extra_fix_html = ""
@@ -135,6 +137,11 @@ def _group_card(group, lookup_result=None):
         extra_fix_html += f"""
         <label class="field-label">Gênero a aplicar em todas as {track_count} faixas (deixe em branco pra pular)</label>
         <input type="text" name="genre" value="{_esc(group.suggested_genre)}" class="text-input">
+        """
+    if group.inconsistent_release_id:
+        extra_fix_html += """
+        <p class="muted small">Faixas vêm de releases diferentes do MusicBrainz - "Aplicar" também
+        limpa esse ID pra reunificar o álbum.</p>
         """
 
     if not fixable:

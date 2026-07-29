@@ -185,6 +185,11 @@ async def apply_group(gid: str, request: Request):
         extra_fields["album"] = new_album
     if group.missing_genre and new_genre:
         extra_fields["genre"] = new_genre
+    if group.inconsistent_release_id:
+        # Different MusicBrainz release ids across tracks split one album into two in
+        # Navidrome - clearing it lets grouping fall back to the (already matching) ALBUM/
+        # ALBUMARTIST text tags. Safe to always do, no user input needed.
+        extra_fields["musicbrainz_albumid"] = ""
 
     if group.mode == "uniform":
         value = form.get("albumartist", "").strip()
