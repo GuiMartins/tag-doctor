@@ -31,6 +31,8 @@ def main():
             flags.append("número de faixa duplicado")
         if g.missing_cover:
             flags.append("sem capa")
+        if g.inconsistent_release_id:
+            flags.append("release do MusicBrainz diferente entre faixas")
         print(f"[{len(g.tracks)} faixas] {g.dir_path}/{g.album!r} -- {', '.join(flags)}")
         if g.mode == "uniform":
             print(f"  sugestão: ALBUMARTIST={g.suggested_albumartist!r}")

@@ -9,7 +9,8 @@ from mutagen.mp4 import MP4, MP4Cover
 
 def set_tags(music_dir, updates):
     """updates: list of (relative_path, {tag_name: value}). Only touches the
-    given tags - never rewrites ARTIST, TRACKNUMBER, etc. Returns (ok, errors)
+    given tags - never rewrites ARTIST, TRACKNUMBER, etc. An empty string value
+    removes that tag entirely rather than writing a blank value. Returns (ok, errors)
     where errors is a list of (path, message)."""
     ok = 0
     errors = []
@@ -21,7 +22,11 @@ def set_tags(music_dir, updates):
                 errors.append((rel_path, "não consegui abrir as tags"))
                 continue
             for key, value in fields.items():
-                f.tags[key] = [value]
+                if value == "":
+                    if key in f.tags:
+                        del f.tags[key]
+                else:
+                    f.tags[key] = [value]
             f.save()
             ok += 1
         except Exception as exc:  # noqa: BLE001 - keep going on other files

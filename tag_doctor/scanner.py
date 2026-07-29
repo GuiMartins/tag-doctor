@@ -58,6 +58,7 @@ class Group:
     missing_artist: bool = False
     missing_tracknumber: bool = False
     duplicate_tracknumber: bool = False
+    inconsistent_release_id: bool = False
     mode: str = "uniform"  # "uniform" (one ALBUMARTIST for the group) or "per_track" (collision)
     suggested_albumartist: str = ""  # only meaningful when mode == "uniform"
     suggested_genre: str = ""
@@ -77,7 +78,7 @@ def compute_has_issue(g):
     return (
         g.missing_albumartist or g.inconsistent_albumartist or g.mojibake or g.missing_genre
         or g.missing_album or g.missing_artist or g.missing_tracknumber or g.duplicate_tracknumber
-        or g.missing_cover
+        or g.missing_cover or g.inconsistent_release_id
     )
 
 
@@ -95,7 +96,7 @@ def _read_tags(path):
 
     return (
         get1("album"), get1("albumartist"), get1("artist"), get1("genre"),
-        get1("tracknumber"), get1("discnumber"),
+        get1("tracknumber"), get1("discnumber"), get1("musicbrainz_albumid"),
     )
 
 
@@ -147,6 +148,8 @@ def _analyze(dir_path, album, raw_tracks):
     artist_values = [t[2] for t in raw_tracks]
     tracknumber_values = [t[4] for t in raw_tracks]
     discnumber_values = [t[5] for t in raw_tracks]
+    release_id_values = [t[6] for t in raw_tracks]
+    non_empty_release_ids = [r for r in release_id_values if r]
 
     collision = len(canonical_groups) > 1
     mode = "per_track" if collision else "uniform"
@@ -175,6 +178,12 @@ def _analyze(dir_path, album, raw_tracks):
         disc_buckets.setdefault(dn, []).append(n)
     duplicate_tracknumber = any(len(nums) != len(set(nums)) for nums in disc_buckets.values())
 
+    # Same physical album but tagged from two different MusicBrainz releases (different
+    # pressings/reissues) - Navidrome groups by the specific release id when present, so this
+    # silently splits one album into two. Only meaningful for uniform groups; per_track
+    # (genuinely different real albums) is expected to have different release ids.
+    inconsistent_release_id = mode == "uniform" and len(set(non_empty_release_ids)) > 1
+
     if mode == "uniform":
         if non_empty_aa:
             group_suggestion = Counter(non_empty_aa).most_common(1)[0][0]
@@ -188,7 +197,7 @@ def _analyze(dir_path, album, raw_tracks):
         group_suggestion = ""
 
     tracks = []
-    for path, albumartist, artist, _genre, tracknumber, _discnumber in raw_tracks:
+    for path, albumartist, artist, _genre, tracknumber, _discnumber, _release_id in raw_tracks:
         if mode == "per_track":
             suggestion = albumartist or canonical_artist(artist)
         else:
@@ -210,12 +219,14 @@ def _analyze(dir_path, album, raw_tracks):
         missing_artist=missing_artist,
         missing_tracknumber=missing_tracknumber,
         duplicate_tracknumber=duplicate_tracknumber,
+        inconsistent_release_id=inconsistent_release_id,
         mode=mode,
         suggested_albumartist=group_suggestion,
         suggested_genre=genre_suggestion,
         has_issue=(
             missing or inconsistent or moji or missing_genre or missing_album
             or missing_artist or missing_tracknumber or duplicate_tracknumber
+            or inconsistent_release_id
         ),
     )
 
@@ -240,13 +251,13 @@ def scan(music_dir):
             if tags is None:
                 unreadable += 1
                 continue
-            album, albumartist, artist, genre, tracknumber, discnumber = tags
+            album, albumartist, artist, genre, tracknumber, discnumber, release_id = tags
             total_tracks += 1
             rel = os.path.relpath(full, music_dir)
             reldir = os.path.relpath(root, music_dir)
             key = (reldir, album)
             raw_groups.setdefault(key, []).append(
-                (rel, albumartist, artist, genre, tracknumber, discnumber)
+                (rel, albumartist, artist, genre, tracknumber, discnumber, release_id)
             )
 
     groups = []
