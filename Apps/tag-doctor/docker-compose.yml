@@ -15,6 +15,11 @@ services:
       - type: bind
         source: /media/1tb/ Music
         target: /music
+      # Opcional, habilita a limpeza de arquivos ausentes. Precisa de escrita: a limpeza
+      # é um DELETE no banco do próprio Navidrome.
+      # - type: bind
+      #   source: /DATA/AppData/navidrome/data
+      #   target: /navidrome-data
     environment:
       DATA_DIR: /data
       MUSIC_DIR: /music
@@ -22,6 +27,12 @@ services:
       # ND_URL: http://navidrome:4533
       # ND_USER: admin
       # ND_PASS: changeme
+      # Opcional, habilita o painel de arquivos ausentes:
+      # ND_DB: /navidrome-data/navidrome.db
+      # Onde a biblioteca do Navidrome aparece DENTRO deste container. Só é preciso quando
+      # os dois montam a biblioteca em caminhos diferentes - a limpeza confere cada registro
+      # contra o arquivo real antes de apagar qualquer coisa.
+      # ND_LIBRARY_DIR: /music
 x-casaos:
   architectures:
     - amd64
