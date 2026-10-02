@@ -7,6 +7,9 @@ services:
     volumes:
       - ./data:/data
       - "/media/1tb/ Music:/music"
+      # Optional - lets the "Arquivos ausentes no Navidrome" panel work. Needs write
+      # access: purging is a DELETE in Navidrome's own database.
+      # - /DATA/AppData/navidrome/data:/navidrome-data
     environment:
       MUSIC_DIR: /music
       DATA_DIR: /data
@@ -14,3 +17,9 @@ services:
       # ND_URL: http://navidrome:4533
       # ND_USER: admin
       # ND_PASS: changeme
+      # Optional - enables the missing-files cleanup:
+      # ND_DB: /navidrome-data/navidrome.db
+      # Where Navidrome's library is visible from THIS container. Only needed when the
+      # two containers mount the library at different paths - the cleanup cross-checks
+      # every row against the real files before deleting anything.
+      # ND_LIBRARY_DIR: /music

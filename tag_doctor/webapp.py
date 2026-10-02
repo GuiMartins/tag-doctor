@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import fixer, lookup as lookup_module, navidrome_client, report
+from . import fixer, lookup as lookup_module, navidrome_client, navidrome_db, report
 from .scanner import Group, compute_has_issue, scan
 
 DEFAULT_MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
@@ -29,6 +29,10 @@ _state = {
 # In-memory only (not persisted) - fetched metadata candidates awaiting user confirmation,
 # keyed by group gid. Holds raw image bytes, so keeping it out of state.json is deliberate.
 _lookup_cache = {}
+
+# In-memory only - the missing-files listing, which is a snapshot of Navidrome's database
+# crossed with the filesystem. Persisting it would risk purging against a stale view.
+_missing_rows = None
 
 
 def _load_state():
@@ -127,6 +131,9 @@ def dashboard():
         flash=flash,
         navidrome_configured=navidrome_client.configured(),
         lookup_results=lookup_results,
+        nd_db_configured=navidrome_db.configured(),
+        missing_count=navidrome_db.missing_count(),
+        missing_rows=_missing_rows,
     )
 
 
@@ -355,6 +362,48 @@ async def apply_lookup(gid: str, request: Request):
 @app.post("/rescan-navidrome")
 def rescan_navidrome():
     success, message = navidrome_client.trigger_rescan()
+    with _lock:
+        _state["flash"] = ("ok" if success else "bad", message)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/missing/check")
+def check_missing():
+    global _missing_rows
+    rows, error = navidrome_db.list_missing()
+    if error:
+        _missing_rows = None
+        with _lock:
+            _state["flash"] = ("bad", error)
+        return RedirectResponse(url="/", status_code=303)
+
+    _missing_rows = rows
+    gone = sum(1 for r in rows if not r["on_disk"])
+    back = len(rows) - gone
+    if not rows:
+        message = "Nenhum arquivo marcado como ausente no Navidrome."
+    else:
+        message = f"{len(rows)} marcados como ausentes: {gone} sumiram mesmo do disco"
+        message += f", {back} voltaram (só precisam de rescan)." if back else "."
+    with _lock:
+        _state["flash"] = ("ok", message)
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/missing/purge")
+def purge_missing():
+    global _missing_rows
+    success, message = navidrome_db.purge_missing()
+    if success:
+        # Cascades clear annotation/playlist_tracks, but the albums and artists left
+        # empty are Navidrome's to collect, and it only does that during a scan.
+        rescan_ok, rescan_message = navidrome_client.trigger_rescan()
+        message += (
+            " Rescan disparado pra limpar álbuns/artistas órfãos."
+            if rescan_ok
+            else f" Rode um rescan pra limpar álbuns/artistas órfãos ({rescan_message})"
+        )
+    _missing_rows = None
     with _lock:
         _state["flash"] = ("ok" if success else "bad", message)
     return RedirectResponse(url="/", status_code=303)

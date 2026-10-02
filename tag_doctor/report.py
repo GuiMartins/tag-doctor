@@ -120,6 +120,95 @@ def _lookup_html(group, lookup_result):
     """
 
 
+def _missing_panel(nd_db_configured, missing_count, missing_rows):
+    """Files Navidrome still lists but that no longer exist on disk.
+
+    Separate from the tag groups on purpose: nothing here is a tag problem, it's leftover
+    rows in Navidrome's database that only it can see.
+    """
+    if not nd_db_configured or not missing_count:
+        return ""
+
+    check_form = """
+    <form method="post" action="/missing/check">
+      <button type="submit" class="secondary-btn">Verificar quais sumiram do disco</button>
+    </form>
+    """
+
+    if missing_rows is None:
+        body = f"""
+        <p class="muted small">O Navidrome ainda lista {missing_count} arquivo(s) que não
+        encontrou na última varredura. Verifique antes de limpar - arquivo que voltou pro
+        disco só precisa de rescan, não de faxina no banco.</p>
+        {check_form}
+        """
+        return f"""
+        <div class="card group-card">
+          <div class="group-head">
+            <b>Arquivos ausentes no Navidrome</b>
+            <span class="badge warn">{missing_count} pendente(s)</span>
+          </div>
+          {body}
+        </div>
+        """
+
+    gone = [r for r in missing_rows if not r["on_disk"]]
+    back = [r for r in missing_rows if r["on_disk"]]
+
+    badge_back = "<span class='badge muted'>voltou pro disco</span>"
+    badge_gone = "<span class='badge bad'>sumiu</span>"
+    rows_html = "".join(
+        f"<tr><td class='mono'>{_esc(r['path'])}</td>"
+        f"<td>{_esc(r['artist']) or '<i>—</i>'}</td>"
+        f"<td>{_esc(r['title']) or '<i>—</i>'}</td>"
+        f"<td>{badge_back if r['on_disk'] else badge_gone}</td></tr>"
+        for r in missing_rows
+    )
+
+    purge_html = ""
+    if gone:
+        # Kept free of apostrophes on purpose: this text lands inside a JS string inside an
+        # HTML attribute, where an escaped quote would be decoded back and break the call.
+        confirm = (
+            f"Apagar {len(gone)} arquivo(s) do banco do Navidrome? "
+            "As estrelas, contagens de reprodução e posições em playlist desses arquivos "
+            "vão junto, e isso não tem volta."
+        )
+        purge_html = f"""
+        <form method="post" action="/missing/purge"
+              onsubmit="return confirm('{confirm}');">
+          <button type="submit">Limpar {len(gone)} do banco</button>
+        </form>
+        """
+
+    note = ""
+    if back:
+        note = (
+            f"<p class='muted small'>{len(back)} arquivo(s) existem de novo no disco e "
+            "<b>não</b> serão apagados - pra esses, use \"Forçar rescan no Navidrome\".</p>"
+        )
+
+    return f"""
+    <div class="card group-card">
+      <div class="group-head">
+        <b>Arquivos ausentes no Navidrome</b>
+        <span class="badge bad">{len(gone)} sumiram</span>
+        {f'<span class="badge muted">{len(back)} voltaram</span>' if back else ''}
+      </div>
+      {note}
+      <div class="toolbar" style="margin:.6rem 0 0">
+        {check_form}
+        {purge_html}
+      </div>
+      <details>
+        <summary>ver os {len(missing_rows)} arquivos</summary>
+        <table><thead><tr><th>Caminho</th><th>Artista</th><th>Título</th><th>Estado</th></tr></thead>
+        <tbody>{rows_html}</tbody></table>
+      </details>
+    </div>
+    """
+
+
 def _group_card(group, lookup_result=None):
     track_count = len(group.tracks)
     fixable = (
@@ -208,7 +297,8 @@ def _group_card(group, lookup_result=None):
 
 
 def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flash,
-                 navidrome_configured, lookup_results=None):
+                 navidrome_configured, lookup_results=None, nd_db_configured=False,
+                 missing_count=None, missing_rows=None):
     lookup_results = lookup_results or {}
     total_groups = stats.get("total_groups", 0)
     total_tracks = stats.get("total_tracks", 0)
@@ -247,6 +337,7 @@ def render_html(music_dir, groups, stats, last_scan, scanning, fixed_count, flas
             cards += f"<p class='muted small'>{unreadable} arquivo(s) sem tags legíveis, ignorado(s).</p>"
 
     groups_html = "".join(_group_card(g, lookup_results.get(g.gid)) for g in groups)
+    missing_html = _missing_panel(nd_db_configured, missing_count, missing_rows)
 
     apply_all_html = ""
     if groups:
@@ -405,6 +496,7 @@ details > summary:hover {{ color: #ccc; }}
 {flash_html}
 {banner}
 {cards}
+{missing_html}
 {'<h2 style="font-size:1rem;color:#aaa;margin:1.8rem 0 .8rem;">Álbuns pendentes de revisão</h2>' if groups else ''}
 {groups_html}
 <script>
